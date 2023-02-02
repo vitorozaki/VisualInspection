@@ -1,14 +1,13 @@
 import cv2
 import numpy as np
-import PIL
 import os
 import shutil
+import matplotlib.pyplot as plt
 
 # denoise
 from skimage import io
 from skimage.restoration import denoise_nl_means, estimate_sigma
 from skimage import img_as_ubyte, img_as_float
-
 
 # Dilation and erosion
 from skimage.morphology import dilation, erosion
@@ -87,6 +86,24 @@ def multi_dil(img, num):
     return img
 
 def multi_ero(im,num):
+    """ Apply the erosion operation, shrinking bright region and enlarging 
+        dark areas. For better results, should be applied over segmented
+        images
+
+        ----------------------
+        Parameters
+
+            img  :  numpy.ndarray
+                input segmented image
+            num  :  int
+                number of erosions to be applied over the image
+    
+        -----------------------
+        Returns
+
+            numpy.ndarray
+    
+    """
     for i in range(num):
         im = erosion(im, rectangle(2, 7))
     return im
@@ -131,7 +148,6 @@ def erase_dir(folder):
     Parameters
 
         folder: string
-
             path to the folder to be emptied 
 
     ----------------------
@@ -151,3 +167,90 @@ def erase_dir(folder):
 
         except Exception as e:
             print('Failed to delete %s. Reason: %s' % (file_path, e))
+
+
+def crop(img_path, output_path):
+    """ Saves cropped objects into a folder
+
+    ----------------------
+    Parameters
+
+        img_path: String
+            path to image to be used as base
+    
+        output_path: String
+            Folder to which the cropped objects will be saved
+
+    ----------------------
+    Returns
+
+        None
+
+    """
+
+    img = cv2.imread(img_path)
+    resized = cv2.resize(img, (512, 512), interpolation=cv2.INTER_AREA)
+    rembg_img = remove(resized)
+    denoised = denoise(rembg_img)
+    gray = cv2.cvtColor(denoised, cv2.COLOR_BGR2GRAY)
+    segmented = cv_seg(gray)
+    dilated = multi_dil(segmented, 3)
+    label_im = label(segmented)
+    for num, i in enumerate(regionprops(label_im)):
+        minr, minc, maxr, maxc = i.bbox
+        roi = img[minr:maxr, minc:maxc]
+        cv2.imwrite(output_path+ f"{num}.jpg", roi)
+
+
+def hist(img):
+    """ Calculates 3 channels color histogram with bins=256 
+        
+    ----------------------
+    Parameters
+
+        img: numpy.ndarray
+            input image
+
+    ----------------------
+    Returns
+
+        numpy.ndarray
+            numpy array with shape (h, w, 3)
+
+    """
+    hist1 = cv2.calcHist([img],[0],None,[256],[0,256])
+    hist2 = cv2.calcHist([img],[1],None,[256],[0,256])
+    hist3 = cv2.calcHist([img],[2],None,[256],[0,256])
+    
+
+    return np.array([np.squeeze(hist1), np.squeeze(hist2), np.squeeze(hist3)])
+
+
+def shape_distance(A, B):
+    """ Calculates the proximity between two images' shape. Higher values
+    corresponds to closer shapes. In this case, the image is the cropped 
+    object
+
+    ----------------------
+    Parameters
+
+        A: numpy.ndarray
+            base object
+        
+        B: numpy.ndarray
+            cropped object to be verified
+    
+    ----------------------
+    Returns
+
+        float
+            Mean between the height and width ratio. A value 
+            between 0 and 1 measuring how close the shapes are
+    
+    """
+    A_shape = A.shape[:2]
+    B_shape = B.shape[:2]
+    height_ratio = 1 - abs((B_shape[0] - A_shape[0]) / A_shape[0])
+    width_ratio = 1 - abs((B_shape[1] - A_shape[1]) / A_shape[1])
+    mean = (height_ratio + width_ratio) / 2
+    return mean
