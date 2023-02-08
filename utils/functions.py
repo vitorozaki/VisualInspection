@@ -57,9 +57,30 @@ def cv_seg(img):
                 Segmented image with pixel values equal to 0 (black)
                 or 255 (white) only.
     """
-    ret, thresh = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_TRIANGLE)
+    ret, thresh = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
 
     return thresh
+
+
+def bin_img(img):
+    """ Converts a segmented image with range [0, 255] to [0, 1]
+
+    ----------------------
+    Parameters
+
+        img: numpy.ndarray
+            input image
+    
+    ----------------------
+    Returns
+
+        numpy.ndarray
+    
+    """
+    aux = np.zeros((img.shape[0], img.shape[1]),dtype=np.uint8)
+    aux[(img[:] != 255)] = 1
+
+    return aux
 
 
 def multi_dil(img, num):
@@ -85,6 +106,7 @@ def multi_dil(img, num):
         img = dilation(img)
     return img
 
+
 def multi_ero(im,num):
     """ Apply the erosion operation, shrinking bright region and enlarging 
         dark areas. For better results, should be applied over segmented
@@ -108,37 +130,80 @@ def multi_ero(im,num):
         im = erosion(im, rectangle(2, 7))
     return im
 
-def count(img):
-    """ Count and locate the objects on the image 
 
-        ----------------------
+def prep_img(img):
+    """ Apply all filters to equalize image and prepare for blob detections
+
+        -----------------------
         Parameters
 
-            img  :  numpy.ndarray
-                input image
-        ----------------------
+            img: np.ndarray
+                input img
 
+        -----------------------
         Returns
 
-            List
-                List containing the boxes' coordinates of each
-                Blob (object) detected. The list's length is the
-                number of objects
+            np.ndarray
+                   
     """
-    label_im = label(img)
-    boxes = []
-    for i in regionprops(label_im):
-        minr, minc, maxr, maxc = i.bbox
-        # # plt rectangle
-        # rect = plt.Rectangle((minc, minr), maxc - minc, maxr - minr,
-        #                       fill=False, edgecolor='red', linewidth=1)
-        # boxes.append(rect)
+    # Convert to grayscale
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-        # OpenCV box
-        box = ((minc, maxr), (maxc, minr))
-        boxes.append(box)
+    # Denoise image
+    denoised = cv2.fastNlMeansDenoising(gray, None, 15, 7, 11)
 
-    return boxes
+    # Segment image
+    segmented = cv_seg(denoised)
+
+    # Binarize image
+    binarized = bin_img(segmented)
+
+    # Dilate image
+    dilated = multi_dil(binarized, 6)
+
+    return dilated
+
+
+
+
+# def count(img):
+#     """ Count and locate the objects on the image 
+
+#         ----------------------
+#         Parameters
+
+#             img  :  numpy.ndarray
+#                 input image
+#         ----------------------
+
+#         Returns
+
+#             List
+#                 List containing the boxes' coordinates of each
+#                 Blob (object) detected. The list's length is the
+#                 number of objects
+#     """
+#     label_im = label(img)
+#     count = 0
+#     for i in regionprops(label_im):
+#         minr, minc, maxr, maxc = i.bbox
+#         # # plt rectangle
+#         # rect = plt.Rectangle((minc, minr), maxc - minc, maxr - minr,
+#         #                       fill=False, edgecolor='red', linewidth=1)
+#         # boxes.append(rect)
+
+#         # OpenCV box
+#         box = ((minc, maxr), (maxc, minr))
+#         x0 = box[0][0]
+#         y0 = box[0][1]
+#         x1 = box[1][0]
+#         y1 = box[1][1]
+#         # print(f"x0 = {x0}\nx1 = {x1}\ny0 = {y0}\ny1 = {y1}")
+#         # roi = frame[y1:y0, x0:x1] 
+#         frame = cv2.rectangle(img, (x0, y0), (x1, y1), (0, 0, 255), 1)
+#         # cv2.imwrite(path+save_img+ f"{i}.jpg", roi)
+#         count += 1
+#     return count, frame
 
 
 def erase_dir(folder):
@@ -226,6 +291,35 @@ def hist(img):
     return np.array([np.squeeze(hist1), np.squeeze(hist2), np.squeeze(hist3)])
 
 
+def histDist(A, B):
+    """ Calculates the distance between two images' histograms
+
+    ----------------------
+    Parameters
+
+        A: numpy.ndarray
+            base object
+        
+        B: numpy.ndarray
+            cropped object to be verified
+    
+    ----------------------
+    Returns
+
+        float
+            The distance of the compared histograms 
+    
+    """
+    # Resize test image to base's size 
+    base_shape = A.shape[:2]
+    resized_B = cv2.resize(B, (base_shape[1], base_shape[0]), interpolation=cv2.INTER_AREA)
+
+    hist_A = hist(A)
+    hist_B = hist(resized_B)
+    res = cv2.compareHist(hist_A, hist_B, cv2.HISTCMP_BHATTACHARYYA)
+    return res
+
+
 def shape_distance(A, B):
     """ Calculates the proximity between two images' shape. Higher values
     corresponds to closer shapes. In this case, the image is the cropped 
@@ -254,3 +348,63 @@ def shape_distance(A, B):
     width_ratio = 1 - abs((B_shape[1] - A_shape[1]) / A_shape[1])
     mean = (height_ratio + width_ratio) / 2
     return mean
+
+
+def shape_similarity(A, B):
+    """ Rotate the image to compare it in different positions
+
+    ----------------------
+    Parameters
+
+        A: numpy.ndarray
+            Base image
+        
+        B: numpy.ndarray
+            Test image
+    
+    ----------------------
+    Returns
+
+        Float
+            Maximum value found compairing base and test images in different
+            positions
+
+    
+    
+    """
+    aux = []
+    for angle in range(-10, 10):
+        rotated = rotate(B, angle=angle)
+        res = shape_distance(A, B)
+        aux.append(res)
+
+    return (max(aux))
+
+
+def verify_img(img):
+    aux = []  # stores the histograms distances
+    for base_img in base_imgs:
+        # Compare the shape from test object with every base object
+        # and if the difference is below 7%, calculate distance 
+        # between histograms
+        if (shape_distance(base_img, test_img) >= 0.9):
+
+            # compare histograms and store into aux list
+            res = histDist(base_img, test_img) 
+            aux.append(res)
+
+        # stores 1 for images with different shape
+        else:
+            aux.append(1)
+            
+    # From histogram distances, the minimum value's index is used to locate the name of
+    # the object from the list of names
+    minimum = min(aux)
+    index = aux.index(minimum)
+    match = objs[index]
+    if minimum != 1 and minimum <= 0.55:
+        print(f"Match --> {match:8}: Distance = {minimum}")
+        actual_img.append(match)
+
+    # missing = [element for element in objs if element not in actual_img]
+    print(f"missing objects: {list(element for element in objs if element not in actual_img)}")
