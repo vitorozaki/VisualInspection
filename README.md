@@ -1,1 +1,1 @@
-# VisualInspection
+# VisInspection
