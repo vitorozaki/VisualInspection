@@ -3,7 +3,7 @@ ___
 
 Este módulo realiza a contagem de objetos na tela em tempo real. Para melhores resultados, é importante utilizar um fundo neutro e sem texturas, iluminação adequada, e espaçar os objetos a uma distância mínima de 1cm.
 
-<img src="/Images/sample_1.png">
+<img src="/images/sample_1.png">
 
 
 
