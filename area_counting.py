@@ -6,11 +6,11 @@ from utils.functions import prep_img
 from skimage.measure import label, regionprops
 import time
 
-ip = "http://192.168.15.5:4747/video"
+# ip = "http://192.168.15.5:4747/video"
 
 font = cv2.FONT_HERSHEY_SIMPLEX
-# cap = cv2.VideoCapture(0) 
-cap = cv2.VideoCapture(ip) 
+cap = cv2.VideoCapture(0) 
+# cap = cv2.VideoCapture(ip) 
 
 width = int(cap.get(3))  # 640
 height = int(cap.get(4))  # 480
